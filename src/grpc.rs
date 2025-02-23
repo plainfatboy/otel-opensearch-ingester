@@ -67,7 +67,11 @@ async fn main() -> Result<(), BoxDynError> {
         b.build()?
     };
     let client = OpenSearch::new(transport);
-    let exporter = Exporter::new(client, config.opensearch.index_name);
+    let exporter = Exporter::new(
+        client,
+        config.opensearch.index_name,
+        config.opensearch.index_with_date_suffix,
+    );
 
     Server::builder()
         .add_service(LogsServiceServer::new(MyServer::new(exporter)))

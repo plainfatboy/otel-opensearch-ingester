@@ -1,7 +1,12 @@
 use std::error::Error;
 
-use opensearch::{http::request::JsonBody, BulkParts, OpenSearch};
-use opentelemetry_proto::tonic::{collector::logs::v1::{ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse}, common::v1::any_value::Value as OtelValue};
+use opensearch::{BulkParts, OpenSearch, http::request::JsonBody};
+use opentelemetry_proto::tonic::{
+    collector::logs::v1::{
+        ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
+    },
+    common::v1::any_value::Value as OtelValue,
+};
 
 use crate::core::error::ApplicationError;
 
@@ -11,22 +16,24 @@ use super::mapper::map_otel_value_to_serdejson_value;
 pub struct Exporter {
     client: OpenSearch,
     index: String,
+    index_append_date_suffix: bool,
 }
 
 impl Exporter {
     pub fn new(
         client: OpenSearch,
         index: String,
+        index_append_date_suffix: bool,
     ) -> Self {
-        Self {
-            client,
-            index,
-        }
+        Self { client, index, index_append_date_suffix }
     }
 }
 
 impl Exporter {
-    pub async fn export(&self, request: ExportLogsServiceRequest) -> Result<ExportLogsServiceResponse, ApplicationError> {
+    pub async fn export(
+        &self,
+        request: ExportLogsServiceRequest,
+    ) -> Result<ExportLogsServiceResponse, ApplicationError> {
         let bulk_index_template = serde_json::json!({"index": {}});
         let mut bulk_body: Vec<JsonBody<serde_json::Value>> = Vec::new();
         for resouce_log in request.resource_logs {
@@ -36,11 +43,15 @@ impl Exporter {
                     let mut attributes = serde_json::Map::new();
                     for attribute in log_record.attributes {
                         if let Some(v) = attribute.value {
-                            attributes.insert(attribute.key, map_otel_value_to_serdejson_value(v.value));
+                            attributes
+                                .insert(attribute.key, map_otel_value_to_serdejson_value(v.value));
                         }
                     }
-                    log.insert("attributes".to_owned(), serde_json::Value::Object(attributes));
-    
+                    log.insert(
+                        "attributes".to_owned(),
+                        serde_json::Value::Object(attributes),
+                    );
+
                     if let Some(b) = log_record.body {
                         if let Some(v) = b.value {
                             let b = match v {
@@ -50,21 +61,28 @@ impl Exporter {
                                     } else {
                                         serde_json::Value::String(s)
                                     }
-                                },
-                                vv => map_otel_value_to_serdejson_value(Some(vv))
+                                }
+                                vv => map_otel_value_to_serdejson_value(Some(vv)),
                             };
                             log.insert("body".to_owned(), b);
                         }
                     }
-    
+
                     bulk_body.push(bulk_index_template.clone().into());
                     bulk_body.push(Into::<serde_json::Value>::into(log).into());
                 }
             }
         }
-    
-        let bulk_response  = self.client
-            .bulk(BulkParts::Index(&self.index))
+
+        let index = if self.index_append_date_suffix {
+            &format!("{}-{}", self.index, chrono::Local::now().format("%y%m%d"))
+        } else {
+            &self.index
+        };
+        
+        let bulk_response = self
+            .client
+            .bulk(BulkParts::Index(index))
             .body(bulk_body)
             .send()
             .await;
@@ -75,7 +93,7 @@ impl Exporter {
                     Ok(resp_body) => resp_body,
                     Err(err) => {
                         // TODO: logging
-                        return Err(ApplicationError::NonRetryable(err.into()))
+                        return Err(ApplicationError::NonRetryable(err.into()));
                     }
                 };
 
@@ -83,7 +101,9 @@ impl Exporter {
                     Some(true) => {
                         let Some(items) = resp_body["items"].as_array() else {
                             // TODO: logging
-                            return Err(ApplicationError::NonRetryable("cannot find items in bulk error respose".into()))
+                            return Err(ApplicationError::NonRetryable(
+                                "cannot find items in bulk error respose".into(),
+                            ));
                         };
 
                         let mut error_count = 0;
@@ -110,26 +130,28 @@ impl Exporter {
                                 error_count += 1;
                             }
                         }
-        
-                        return Ok(
-                            ExportLogsServiceResponse{
-                                partial_success: Some(ExportLogsPartialSuccess{
-                                    rejected_log_records: error_count,
-                                    // TODO: optimize, maybe we should return only _id and reason for each error.
-                                    error_message: resp_body.to_string(),
-                                })
-                            }
-                        );
-                    },
+
+                        return Ok(ExportLogsServiceResponse {
+                            partial_success: Some(ExportLogsPartialSuccess {
+                                rejected_log_records: error_count,
+                                // TODO: optimize, maybe we should return only _id and reason for each error.
+                                error_message: resp_body.to_string(),
+                            }),
+                        });
+                    }
                     Some(false) => {
-                        return Ok(ExportLogsServiceResponse{ ..Default::default() })
-                    },
+                        return Ok(ExportLogsServiceResponse {
+                            ..Default::default()
+                        });
+                    }
                     None => {
                         // TODO: logging
-                        return Ok(ExportLogsServiceResponse{ ..Default::default() })
-                    },
+                        return Ok(ExportLogsServiceResponse {
+                            ..Default::default()
+                        });
+                    }
                 }
-            },
+            }
             Err(err) => {
                 if let Some(err) = err.source() {
                     if let Some(ioerr) = err.downcast_ref::<std::io::Error>() {
