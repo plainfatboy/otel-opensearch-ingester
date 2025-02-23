@@ -1,0 +1,22 @@
+[package]
+name = "otel-opensearch-ingester"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "grpc-server"
+path = "src/grpc.rs"
+
+[dependencies]
+axum = "0.8"
+axum-macros = "0.5"
+opensearch = { version = "2.3" }
+opentelemetry-proto = { version = "0.28", features = ["with-serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+tokio = { version = "1.43", features = ["full"] }
+tower-http = { version = "0.6", features = ["compression-full", "decompression-full"] }
+prost = { version = "0.13", features = ["prost-derive"] }
+prost-derive = "0.13"
+base64 = "0.22"
+tonic = "0.12"
