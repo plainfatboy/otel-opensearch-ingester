@@ -14,7 +14,7 @@ use opentelemetry_proto::tonic::collector::logs::v1::{
     ExportLogsServiceRequest, ExportLogsServiceResponse,
     logs_service_server::{LogsService, LogsServiceServer},
 };
-use tonic::transport::Server;
+use tonic::{codec::CompressionEncoding, transport::Server};
 
 mod config;
 mod core;
@@ -74,7 +74,11 @@ async fn main() -> Result<(), BoxDynError> {
     );
 
     Server::builder()
-        .add_service(LogsServiceServer::new(MyServer::new(exporter)))
+        .add_service(
+            LogsServiceServer::new(MyServer::new(exporter))
+                .send_compressed(CompressionEncoding::Gzip)
+                .accept_compressed(CompressionEncoding::Gzip)
+        )
         .serve(format!("0.0.0.0:{}", config.server.port).parse()?)
         .await?;
 
