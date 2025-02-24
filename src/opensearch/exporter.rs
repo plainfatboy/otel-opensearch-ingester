@@ -68,6 +68,14 @@ impl Exporter {
                         }
                     }
 
+                    log.insert(
+                        "@timestamp".to_owned(),
+                        serde_json::Value::String(
+                            chrono::DateTime::from_timestamp_nanos(log_record.time_unix_nano as i64)
+                                .format("%+")
+                                .to_string(),
+                        ),
+                    );
                     bulk_body.push(bulk_index_template.clone().into());
                     bulk_body.push(Into::<serde_json::Value>::into(log).into());
                 }
