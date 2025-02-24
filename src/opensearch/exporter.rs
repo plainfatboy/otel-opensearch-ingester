@@ -8,7 +8,7 @@ use opentelemetry_proto::tonic::{
     common::v1::any_value::Value as OtelValue,
 };
 
-use crate::core::error::ApplicationError;
+use crate::{core::error::ApplicationError, utils::chrono::format_iso8601};
 
 use super::mapper::map_otel_value_to_serdejson_value;
 
@@ -67,13 +67,10 @@ impl Exporter {
                             log.insert("body".to_owned(), b);
                         }
                     }
-
                     log.insert(
                         "@timestamp".to_owned(),
                         serde_json::Value::String(
-                            chrono::DateTime::from_timestamp_nanos(log_record.time_unix_nano as i64)
-                                .format("%+")
-                                .to_string(),
+                            format_iso8601(chrono::DateTime::from_timestamp_nanos(log_record.time_unix_nano as i64))
                         ),
                     );
                     bulk_body.push(bulk_index_template.clone().into());

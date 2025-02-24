@@ -19,6 +19,7 @@ use tonic::{codec::CompressionEncoding, transport::Server};
 mod config;
 mod core;
 mod opensearch;
+mod utils;
 
 #[derive(Debug, Default)]
 pub struct MyServer {
