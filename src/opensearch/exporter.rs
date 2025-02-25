@@ -38,7 +38,7 @@ impl Exporter {
             .u64_counter("processed_log_record")
             .build();
         let bulk_record_length = meter
-            .u64_histogram("bulk_record_size")
+            .u64_histogram("bulk_record_length")
             .with_boundaries([1.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 10000.0].to_vec())
             .build();
         let bulk_request_duration = meter
@@ -46,7 +46,7 @@ impl Exporter {
             .with_unit("ms")
             .build();
         let bulk_request_record_error = meter
-            .u64_counter("bulk_request_error")
+            .u64_counter("bulk_request_record_error")
             .build();
         let retryable_error = meter
             .u64_counter("retryable_error")

@@ -15,7 +15,7 @@ use opentelemetry_proto::tonic::collector::logs::v1::{
     ExportLogsServiceRequest, ExportLogsServiceResponse,
     logs_service_server::{LogsService, LogsServiceServer},
 };
-use opentelemetry_sdk::{metrics::SdkMeterProvider, resource::ResourceBuilder, Resource};
+use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
 use prometheus::{Registry, TextEncoder};
 use tokio::task::JoinSet;
 use tonic::{codec::CompressionEncoding, transport::Server};
