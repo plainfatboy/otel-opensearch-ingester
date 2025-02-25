@@ -21,3 +21,7 @@ prost-derive = "0.13"
 base64 = "0.22"
 tonic = { version = "0.12", features = ["gzip"] }
 chrono = "0.4"
+opentelemetry = { version = "0.28.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.28.0", features = ["metrics", "rt-tokio"] }
+opentelemetry-prometheus = "0.28.0"
+prometheus = "0.13.4"

@@ -19,7 +19,14 @@ pub fn read_config_from_env() -> Result<Config, BoxDynError> {
                 env::VarError::NotPresent => 4317,
                 env::VarError::NotUnicode(_) => return Err("PORT is not valid unicode".into()),
             }
-        }
+        },
+        http_port: match env::var("HTTP_PORT") {
+            Ok(val) => val.parse()?,
+            Err(err) => match err {
+                env::VarError::NotPresent => 8080,
+                env::VarError::NotUnicode(_) => return Err("HTTP_PORT is not valid unicode".into()),
+            }
+        },
     };
 
     let opensearch = OpenSearchConfig {

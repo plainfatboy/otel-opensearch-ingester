@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use opensearch::{BulkParts, OpenSearch, http::request::JsonBody};
+use opentelemetry::metrics::Counter;
 use opentelemetry_proto::tonic::{
     collector::logs::v1::{
         ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -12,11 +13,18 @@ use crate::{core::error::ApplicationError, utils::chrono::format_iso8601};
 
 use super::mapper::map_otel_value_to_serdejson_value;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Exporter {
     client: OpenSearch,
     index: String,
     index_append_date_suffix: bool,
+
+    processed_log_record: Counter<u64>,
+    bulk_record_length: opentelemetry::metrics::Histogram<u64>,
+    bulk_request_duration: opentelemetry::metrics::Histogram<u64>,
+    bulk_request_record_error: Counter<u64>,
+    retryable_error: Counter<u64>,
+    non_retryable_error: Counter<u64>,
 }
 
 impl Exporter {
@@ -25,7 +33,39 @@ impl Exporter {
         index: String,
         index_append_date_suffix: bool,
     ) -> Self {
-        Self { client, index, index_append_date_suffix }
+        let meter = opentelemetry::global::meter("exporter");
+        let processed_log_record = meter
+            .u64_counter("processed_log_record")
+            .build();
+        let bulk_record_length = meter
+            .u64_histogram("bulk_record_size")
+            .with_boundaries([1.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 10000.0].to_vec())
+            .build();
+        let bulk_request_duration = meter
+            .u64_histogram("bulk_request_duration")
+            .with_unit("ms")
+            .build();
+        let bulk_request_record_error = meter
+            .u64_counter("bulk_request_error")
+            .build();
+        let retryable_error = meter
+            .u64_counter("retryable_error")
+            .build();
+        let non_retryable_error = meter
+            .u64_counter("non_retryable_error")
+            .build();
+
+        Self {
+            client,
+            index,
+            index_append_date_suffix,
+            processed_log_record,
+            bulk_record_length,
+            bulk_request_duration,
+            bulk_request_record_error,
+            retryable_error,
+            non_retryable_error,
+        }
     }
 }
 
@@ -51,7 +91,7 @@ impl Exporter {
                         "attributes".to_owned(),
                         serde_json::Value::Object(attributes),
                     );
-
+                    
                     if let Some(b) = log_record.body {
                         if let Some(v) = b.value {
                             let b = match v {
@@ -88,6 +128,7 @@ impl Exporter {
                     );
                     bulk_body.push(bulk_index_template.clone().into());
                     bulk_body.push(Into::<serde_json::Value>::into(log).into());
+                    self.processed_log_record.add(1, &[]);
                 }
             }
         }
@@ -97,13 +138,18 @@ impl Exporter {
         } else {
             &self.index
         };
-        
+
+        let bulk_document_length = (bulk_body.len() as u64) / 2;
+        self.bulk_record_length.record(bulk_document_length, &[]);
+        let start = std::time::Instant::now();
         let bulk_response = self
             .client
             .bulk(BulkParts::Index(index))
             .body(bulk_body)
             .send()
             .await;
+        let elapsed = start.elapsed();
+        self.bulk_request_duration.record(elapsed.as_millis() as u64, &[]);
 
         match bulk_response {
             Ok(resp) => {
@@ -111,6 +157,7 @@ impl Exporter {
                     Ok(resp_body) => resp_body,
                     Err(err) => {
                         // TODO: logging
+                        self.non_retryable_error.add(1, &[]);
                         return Err(ApplicationError::NonRetryable(err.into()));
                     }
                 };
@@ -119,6 +166,7 @@ impl Exporter {
                     Some(true) => {
                         let Some(items) = resp_body["items"].as_array() else {
                             // TODO: logging
+                            self.non_retryable_error.add(1, &[]);
                             return Err(ApplicationError::NonRetryable(
                                 "cannot find items in bulk error respose".into(),
                             ));
@@ -149,6 +197,7 @@ impl Exporter {
                             }
                         }
 
+                        self.bulk_request_record_error.add(error_count as u64, &[]);
                         return Ok(ExportLogsServiceResponse {
                             partial_success: Some(ExportLogsPartialSuccess {
                                 rejected_log_records: error_count,
@@ -173,10 +222,12 @@ impl Exporter {
             Err(err) => {
                 if let Some(err) = err.source() {
                     if let Some(ioerr) = err.downcast_ref::<std::io::Error>() {
+                        self.retryable_error.add(1, &[]);
                         // IMPORTANT: we should retry only on IO error
                         return Err(ApplicationError::Retryable(ioerr.to_string().into()));
                     }
                 }
+                self.non_retryable_error.add(1, &[]);
                 return Err(ApplicationError::NonRetryable(err.to_string().into()));
             }
         }

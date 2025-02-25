@@ -5,6 +5,7 @@ pub struct Config {
 
 pub struct ServerConfig {
     pub port: u16,
+    pub http_port: u16,
 }
 
 pub struct OpenSearchConfig {
