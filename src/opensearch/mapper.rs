@@ -15,7 +15,7 @@ pub fn map_otel_value_to_serdejson_value(value: Option<OtelValue>) -> serde_json
                         .map(|v| map_otel_value_to_serdejson_value(v.value))
                         .collect()
                 ),
-                OtelValue::KvlistValue(kv) => {
+            OtelValue::KvlistValue(kv) => {
                 let mut map = serde_json::Map::new();
                 for entry in kv.values {
                     if let Some(vv) = entry.value {

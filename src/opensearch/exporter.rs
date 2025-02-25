@@ -62,9 +62,22 @@ impl Exporter {
                                         serde_json::Value::String(s)
                                     }
                                 }
-                                vv => map_otel_value_to_serdejson_value(Some(vv)),
+                                OtelValue::KvlistValue(kv) =>
+                                    map_otel_value_to_serdejson_value(Some(OtelValue::KvlistValue(kv))),
+                                vv => {
+                                    // TODO: we should add metric to track how often we hit this case.
+                                    serde_json::Value::String(
+                                        map_otel_value_to_serdejson_value(Some(vv))
+                                            .to_string()
+                                    )
+                                }
                             };
-                            log.insert("body".to_owned(), b);
+                            // IMPORTANT: b must be an object or a string.
+                            if b.is_object() {
+                                log.insert("body".to_owned(), b);
+                            } else {
+                                log.insert("raw_body".to_owned(), b);
+                            }
                         }
                     }
                     log.insert(
